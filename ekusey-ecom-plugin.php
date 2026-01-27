@@ -91,6 +91,7 @@ final class EkuseyEcomPlugin {
         EkuseyEcom\Api::init();
         EkuseyEcom\Ajax::init();
         EkuseyEcom\AffiliateBloom::init();
+        EkuseyEcom\ProductProfit::init();
     }
 
     /**

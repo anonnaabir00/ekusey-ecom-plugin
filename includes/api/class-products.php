@@ -3,6 +3,7 @@
 namespace EkuseyEcom\Api;
 
 use EkuseyEcom\Helper;
+use EkuseyEcom\ProductProfit;
 use WP_Error;
 use WP_REST_Request;
 use WP_Query;
@@ -122,6 +123,8 @@ class Products {
                 $variations_out = $this->get_variations( $product );
             }
 
+            $profit_fields = $this->get_profit_fields( $product->get_id() );
+
             $items[] = [
                 'id'        => (int) $product->get_id(),
                 'type'      => $product->get_type(),
@@ -133,6 +136,10 @@ class Products {
                 'regular_price' => $product->get_regular_price(),
                 'sale_price'    => $product->get_sale_price(),
                 'price_html'    => $product->get_price_html(),
+
+                'buy_price'  => $profit_fields['buy_price'],
+                'sale_price' => $profit_fields['sale_price'],
+                'net_profit' => $profit_fields['net_profit'],
 
                 'in_stock'     => (bool) $product->is_in_stock(),
                 'stock_status' => $product->get_stock_status(),
@@ -237,6 +244,8 @@ class Products {
                 ];
             }
 
+            $profit_fields = $this->get_profit_fields( $v->get_id() );
+
             $out[] = [
                 'id'             => (int) $v->get_id(),
                 'sku'            => $v->get_sku(),
@@ -244,6 +253,10 @@ class Products {
                 'regular_price'  => $v->get_regular_price(),
                 'sale_price'     => $v->get_sale_price(),
                 'price_html'     => $v->get_price_html(),
+
+                'buy_price'      => $profit_fields['buy_price'],
+                'sale_price'     => $profit_fields['sale_price'],
+                'net_profit'     => $profit_fields['net_profit'],
 
                 'in_stock'       => (bool) $v->is_in_stock(),
                 'stock_status'   => $v->get_stock_status(),
@@ -259,5 +272,34 @@ class Products {
         }
 
         return $out;
+    }
+
+    /**
+     * Profit fields for a product or variation.
+     */
+    private function get_profit_fields( int $product_id ): array {
+        $buy_price  = get_post_meta( $product_id, ProductProfit::META_BUY_PRICE, true );
+        $sale_price = get_post_meta( $product_id, ProductProfit::META_SALE_PRICE, true );
+        $discount   = get_post_meta( $product_id, ProductProfit::META_DISCOUNT, true );
+
+        $buy_price  = ( $buy_price !== '' ) ? $buy_price : null;
+        $sale_price = ( $sale_price !== '' ) ? $sale_price : null;
+        $discount   = ( $discount !== '' ) ? $discount : null;
+
+        $net_profit = null;
+        if ( $buy_price !== null && $sale_price !== null && is_numeric( $buy_price ) && is_numeric( $sale_price ) ) {
+            $effective_sale = (float) $sale_price;
+            if ( $discount !== null && is_numeric( $discount ) ) {
+                $effective_sale = (float) $sale_price * ( 1 - ( (float) $discount / 100 ) );
+            }
+            $net_profit = number_format( $effective_sale - (float) $buy_price, 2, '.', '' );
+        }
+
+        return [
+            'buy_price'  => $buy_price,
+            'sale_price' => $sale_price,
+            'discount_percent' => $discount,
+            'net_profit' => $net_profit,
+        ];
     }
 }
