@@ -178,15 +178,20 @@ class AffiliateBloom {
         $total_profit = 0.0;
 
         foreach ( $order->get_items() as $item ) {
-            $product_id = $item->get_variation_id() ?: $item->get_product_id();
-            $quantity   = $item->get_quantity();
-            $line_total = (float) $item->get_total(); // Price paid for this line (after discounts, excludes tax).
+            $variation_id = $item->get_variation_id();
+            $product_id   = $item->get_product_id();
+            $quantity     = $item->get_quantity();
+            $line_total   = (float) $item->get_total(); // Price paid for this line (after discounts, excludes tax).
 
-            // Get buy price from product meta.
-            $buy_price = get_post_meta( $product_id, '_ekusey_buy_price', true );
-
+            // Get buy price: check variation first, then fall back to parent product.
+            $buy_price = '';
+            if ( $variation_id ) {
+                $buy_price = get_post_meta( $variation_id, '_ekusey_buy_price', true );
+            }
             if ( $buy_price === '' || ! is_numeric( $buy_price ) ) {
-                // If no buy price set, assume zero cost (full profit).
+                $buy_price = get_post_meta( $product_id, '_ekusey_buy_price', true );
+            }
+            if ( $buy_price === '' || ! is_numeric( $buy_price ) ) {
                 $buy_price = 0;
             }
 
