@@ -46,6 +46,7 @@ class Affiliate {
 
         $affiliate_code    = $order->get_meta( '_affiliate_ref_code' );
         $commission_amount = $order->get_meta( '_affiliate_commission_amount' );
+        $net_profit        = $order->get_meta( '_affiliate_order_net_profit' );
         $current_status    = $order->get_meta( '_affiliate_commission_status' );
 
         if ( empty( $affiliate_code ) ) {
@@ -60,10 +61,11 @@ class Affiliate {
         $api_data = [
             'affiliate_code'    => $affiliate_code,
             'commission_amount' => floatval( $commission_amount ),
+            'net_profit'        => floatval( $net_profit ),
             'order_id'          => $order_id,
         ];
 
-        $api_url = 'https://wordpress-1557942-6041866.cloudwaysapps.com/wp-json/affiliate-bloom/v1/conversion';
+        $api_url = 'https://api.ekusey.com/wp-json/affiliate-bloom/v1/conversion';
 
         $api_response = wp_remote_post( $api_url, [
             'headers'   => [ 'Content-Type' => 'application/json' ],

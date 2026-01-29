@@ -12,9 +12,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 class AffiliateBloom {
 
     /**
-     * Commission rate (15%).
+     * Commission rate (30%).
      */
-    const COMMISSION_RATE = 0.15;
+    const COMMISSION_RATE = 0.30;
 
     public static function init(): void {
         $self = new self();
@@ -95,6 +95,10 @@ class AffiliateBloom {
 
     /**
      * Classic checkout hook.
+     *
+     * NOTE: This hook fires BEFORE line items are added to the order,
+     * so we only save the ref code here. Net profit and commission
+     * are calculated later in the order_processed hook when items exist.
      */
     public function save_ref_to_order( $order, $data ): void {
         $ref = self::get_current_ref();
@@ -103,12 +107,6 @@ class AffiliateBloom {
         }
 
         $order->update_meta_data( '_affiliate_ref_code', $ref );
-
-        $total      = $order->get_total();
-        $commission = $total * self::COMMISSION_RATE;
-
-        $order->update_meta_data( '_affiliate_commission_amount', $commission );
-        $order->update_meta_data( '_affiliate_commission_rate', self::COMMISSION_RATE );
         $order->update_meta_data( '_affiliate_commission_status', 'pending' );
     }
 
@@ -123,36 +121,83 @@ class AffiliateBloom {
 
         $order->update_meta_data( '_affiliate_ref_code', $ref );
 
-        $total      = $order->get_total();
-        $commission = $total * self::COMMISSION_RATE;
+        $net_profit = self::calculate_order_net_profit( $order );
+        $commission = $net_profit * self::COMMISSION_RATE;
 
         $order->update_meta_data( '_affiliate_commission_amount', $commission );
         $order->update_meta_data( '_affiliate_commission_rate', self::COMMISSION_RATE );
         $order->update_meta_data( '_affiliate_commission_status', 'pending' );
+        $order->update_meta_data( '_affiliate_order_net_profit', $net_profit );
 
         $order->save();
     }
 
     /**
      * Legacy order processed hook.
+     *
+     * This fires AFTER line items are created, so net profit can be
+     * calculated correctly. Uses order object methods for HPOS compat.
      */
     public function save_ref_to_order_legacy( $order_id ): void {
-        $ref = self::get_current_ref();
+        $order = wc_get_order( $order_id );
+        if ( ! $order ) {
+            return;
+        }
+
+        // If ref was already saved by the create_order hook, use it.
+        // Otherwise check the cookie.
+        $ref = $order->get_meta( '_affiliate_ref_code' );
+        if ( empty( $ref ) ) {
+            $ref = self::get_current_ref();
+        }
+
         if ( empty( $ref ) ) {
             return;
         }
 
-        update_post_meta( $order_id, '_affiliate_ref_code', $ref );
+        $net_profit = self::calculate_order_net_profit( $order );
+        $commission = $net_profit * self::COMMISSION_RATE;
 
-        $order = wc_get_order( $order_id );
-        if ( $order ) {
-            $total      = $order->get_total();
-            $commission = $total * self::COMMISSION_RATE;
+        $order->update_meta_data( '_affiliate_ref_code', $ref );
+        $order->update_meta_data( '_affiliate_commission_amount', $commission );
+        $order->update_meta_data( '_affiliate_commission_rate', self::COMMISSION_RATE );
+        $order->update_meta_data( '_affiliate_commission_status', 'pending' );
+        $order->update_meta_data( '_affiliate_order_net_profit', $net_profit );
+        $order->save();
+    }
 
-            update_post_meta( $order_id, '_affiliate_commission_amount', $commission );
-            update_post_meta( $order_id, '_affiliate_commission_rate', self::COMMISSION_RATE );
-            update_post_meta( $order_id, '_affiliate_commission_status', 'pending' );
+    /**
+     * Calculate net profit for an order (excludes shipping).
+     *
+     * Net profit = Sum of (item_subtotal - (buy_price * quantity)) for each line item.
+     *
+     * @param \WC_Order $order The order object.
+     * @return float The total net profit.
+     */
+    public static function calculate_order_net_profit( $order ): float {
+        $total_profit = 0.0;
+
+        foreach ( $order->get_items() as $item ) {
+            $product_id = $item->get_variation_id() ?: $item->get_product_id();
+            $quantity   = $item->get_quantity();
+            $line_total = (float) $item->get_total(); // Price paid for this line (after discounts, excludes tax).
+
+            // Get buy price from product meta.
+            $buy_price = get_post_meta( $product_id, '_ekusey_buy_price', true );
+
+            if ( $buy_price === '' || ! is_numeric( $buy_price ) ) {
+                // If no buy price set, assume zero cost (full profit).
+                $buy_price = 0;
+            }
+
+            $cost_for_line = (float) $buy_price * $quantity;
+            $line_profit   = $line_total - $cost_for_line;
+
+            $total_profit += $line_profit;
         }
+
+        // Ensure profit is not negative.
+        return max( 0.0, $total_profit );
     }
 
     // ------------------------------------------------------------------
@@ -178,13 +223,16 @@ class AffiliateBloom {
             $order->save();
         }
 
-        if ( empty( $commission_amount ) && empty( $commission_rate ) ) {
-            $order_total       = $order->get_total();
-            $commission_amount = $order_total * self::COMMISSION_RATE;
+        $net_profit_meta = $order->get_meta( '_affiliate_order_net_profit' );
+
+        if ( empty( $commission_amount ) || empty( $net_profit_meta ) ) {
+            $net_profit        = self::calculate_order_net_profit( $order );
+            $commission_amount = $net_profit * self::COMMISSION_RATE;
             $commission_rate   = self::COMMISSION_RATE;
 
             $order->update_meta_data( '_affiliate_commission_amount', $commission_amount );
             $order->update_meta_data( '_affiliate_commission_rate', $commission_rate );
+            $order->update_meta_data( '_affiliate_order_net_profit', $net_profit );
             $order->save();
         }
 
@@ -193,8 +241,13 @@ class AffiliateBloom {
         echo '<p style="margin: 8px 0;"><strong>' . esc_html__( 'Referral Code:', 'ekusey-ecom' ) . '</strong> <code style="background: #f5f5f5; padding: 2px 6px; border-radius: 3px;">' . esc_html( $ref_code ) . '</code></p>';
 
         if ( $commission_amount ) {
+            $net_profit      = $order->get_meta( '_affiliate_order_net_profit' );
             $rate_percentage = ( $commission_rate * 100 ) . '%';
-            echo '<p style="margin: 8px 0;"><strong>' . esc_html__( 'Commission Rate:', 'ekusey-ecom' ) . '</strong> ' . esc_html( $rate_percentage ) . '</p>';
+
+            if ( $net_profit ) {
+                echo '<p style="margin: 8px 0;"><strong>' . esc_html__( 'Order Net Profit:', 'ekusey-ecom' ) . '</strong> ' . wc_price( $net_profit ) . '</p>';
+            }
+            echo '<p style="margin: 8px 0;"><strong>' . esc_html__( 'Commission Rate:', 'ekusey-ecom' ) . '</strong> ' . esc_html( $rate_percentage ) . ' ' . esc_html__( '(of net profit)', 'ekusey-ecom' ) . '</p>';
             echo '<p style="margin: 8px 0;"><strong>' . esc_html__( 'Commission Amount:', 'ekusey-ecom' ) . '</strong> <span style="font-size: 16px; color: #2c3e50; font-weight: 600;">' . wc_price( $commission_amount ) . '</span></p>';
 
             $status_colors = [
