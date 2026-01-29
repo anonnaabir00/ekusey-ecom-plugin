@@ -3,7 +3,7 @@
  * Plugin Name:       Ekusey Ecom Plugin
  * Plugin URI:        https://github.com/anonnaabir00/ekusey-ecom-plugin
  * Description:       Custom e-commerce functionality for Ekusey — product API, homepage banner, affiliate system, and more.
- * Version:           1.0.4
+ * Version:           1.0.5
  * Author:            Anonna Abir
  * Author URI:        https://github.com/anonnaabir00
  * License:           GPL-2.0-or-later
@@ -26,7 +26,7 @@ final class EkuseyEcomPlugin {
     /**
      * Plugin version.
      */
-    const VERSION = '1.0.4';
+    const VERSION = '1.0.5';
 
     /**
      * Singleton instance.

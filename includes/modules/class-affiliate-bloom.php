@@ -178,21 +178,21 @@ class AffiliateBloom {
         $total_profit = 0.0;
 
         foreach ( $order->get_items() as $item ) {
-            $quantity   = $item->get_quantity();
-            $line_total = (float) $item->get_total(); // Price paid for this line (after discounts, excludes tax).
+            $variation_id = $item->get_variation_id();
+            $product_id   = $item->get_product_id();
+            $quantity     = $item->get_quantity();
+            $line_total   = (float) $item->get_total(); // Price paid for this line (after discounts, excludes tax).
 
-            // Use WC product object to read buy price (HPOS compatible).
-            $product   = $item->get_product();
             $buy_price = '';
 
-            if ( $product ) {
-                $buy_price = $product->get_meta( '_ekusey_buy_price', true );
+            // For variations, check variation meta first.
+            if ( $variation_id ) {
+                $buy_price = get_post_meta( $variation_id, '_ekusey_buy_price', true );
+            }
 
-                // For variations, fall back to parent product if no buy price on variation.
-                if ( ( $buy_price === '' || ! is_numeric( $buy_price ) ) && $product->get_parent_id() ) {
-                    $parent    = wc_get_product( $product->get_parent_id() );
-                    $buy_price = $parent ? $parent->get_meta( '_ekusey_buy_price', true ) : '';
-                }
+            // Fall back to parent/simple product.
+            if ( $buy_price === '' || ! is_numeric( $buy_price ) ) {
+                $buy_price = get_post_meta( $product_id, '_ekusey_buy_price', true );
             }
 
             if ( $buy_price === '' || ! is_numeric( $buy_price ) ) {
@@ -232,18 +232,15 @@ class AffiliateBloom {
             $order->save();
         }
 
-        $net_profit_meta = $order->get_meta( '_affiliate_order_net_profit' );
+        // Always recalculate net profit and commission from product buy prices.
+        $net_profit        = self::calculate_order_net_profit( $order );
+        $commission_amount = $net_profit * self::COMMISSION_RATE;
+        $commission_rate   = self::COMMISSION_RATE;
 
-        if ( empty( $commission_amount ) || empty( $net_profit_meta ) ) {
-            $net_profit        = self::calculate_order_net_profit( $order );
-            $commission_amount = $net_profit * self::COMMISSION_RATE;
-            $commission_rate   = self::COMMISSION_RATE;
-
-            $order->update_meta_data( '_affiliate_commission_amount', $commission_amount );
-            $order->update_meta_data( '_affiliate_commission_rate', $commission_rate );
-            $order->update_meta_data( '_affiliate_order_net_profit', $net_profit );
-            $order->save();
-        }
+        $order->update_meta_data( '_affiliate_commission_amount', $commission_amount );
+        $order->update_meta_data( '_affiliate_commission_rate', $commission_rate );
+        $order->update_meta_data( '_affiliate_order_net_profit', $net_profit );
+        $order->save();
 
         echo '<div class="order_data_column" style="clear:both; padding-top:20px; border-top: 1px solid #ddd; margin-top: 20px;">';
         echo '<h3 style="font-size: 14px; margin-bottom: 12px;">' . esc_html__( 'Affiliate Information', 'ekusey-ecom' ) . '</h3>';
