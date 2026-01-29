@@ -178,19 +178,23 @@ class AffiliateBloom {
         $total_profit = 0.0;
 
         foreach ( $order->get_items() as $item ) {
-            $variation_id = $item->get_variation_id();
-            $product_id   = $item->get_product_id();
-            $quantity     = $item->get_quantity();
-            $line_total   = (float) $item->get_total(); // Price paid for this line (after discounts, excludes tax).
+            $quantity   = $item->get_quantity();
+            $line_total = (float) $item->get_total(); // Price paid for this line (after discounts, excludes tax).
 
-            // Get buy price: check variation first, then fall back to parent product.
+            // Use WC product object to read buy price (HPOS compatible).
+            $product   = $item->get_product();
             $buy_price = '';
-            if ( $variation_id ) {
-                $buy_price = get_post_meta( $variation_id, '_ekusey_buy_price', true );
+
+            if ( $product ) {
+                $buy_price = $product->get_meta( '_ekusey_buy_price', true );
+
+                // For variations, fall back to parent product if no buy price on variation.
+                if ( ( $buy_price === '' || ! is_numeric( $buy_price ) ) && $product->get_parent_id() ) {
+                    $parent    = wc_get_product( $product->get_parent_id() );
+                    $buy_price = $parent ? $parent->get_meta( '_ekusey_buy_price', true ) : '';
+                }
             }
-            if ( $buy_price === '' || ! is_numeric( $buy_price ) ) {
-                $buy_price = get_post_meta( $product_id, '_ekusey_buy_price', true );
-            }
+
             if ( $buy_price === '' || ! is_numeric( $buy_price ) ) {
                 $buy_price = 0;
             }
